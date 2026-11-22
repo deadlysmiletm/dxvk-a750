@@ -62,4 +62,4 @@ jobs:
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v$VER" dxvk-*.wcp -R "$GITHUB_REPOSITORY" --title "DXVK $VER" --notes "DXVK ${{ inputs.dxvk_ref }} + ${{ inputs.gplasync_patch || 'no async' }}. Import the .wcp in GameNative: Settings > Components."
+        run: gh release create "v$VER" dxvk-*.wcp -R "$GITHUB_REPOSITORY" --title "DXVK $VER" --notes "DXVK ${{ inputs.dxvk_ref }} + ${{ inputs.gplasync_patch || 'no async' }}. Import the .wcp in GameNative via Settings > Components."
