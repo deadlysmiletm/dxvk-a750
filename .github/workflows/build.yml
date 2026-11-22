@@ -41,7 +41,9 @@ jobs:
           [ -n "${{ inputs.gplasync_patch }}" ] && VER="$VER-gplasync"
           VER="$VER-a750"
           echo "VER=$VER" >> "$GITHUB_ENV"
-          ./package-release.sh "$VER" ../out --no-package --build-arm64x
+          # ponytail: arm64x only exists in newer DXVK (master); tags like v3.1.1 build x64/x32 only
+          A64=""; grep -q -- "--build-arm64x" package-release.sh && A64="--build-arm64x"
+          ./package-release.sh "$VER" ../out --no-package $A64
           find ../out -maxdepth 2 -type d
 
       - name: Package .wcp for GameNative / Winlator
