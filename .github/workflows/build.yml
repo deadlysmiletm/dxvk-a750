@@ -54,8 +54,8 @@ jobs:
             P=$(mktemp -d); mkdir -p "$P/system32" "$P/syswow64"
             cp "$D/$2"/*.dll "$P/system32/"; cp "$D/$3"/*.dll "$P/syswow64/"
             files=$(for f in "$P"/system32/*.dll "$P"/syswow64/*.dll; do r=${f#$P/}; d=${r%%/*}; echo "{\"source\":\"$r\",\"target\":\"\${$d}/$(basename $f)\"}"; done | paste -sd,)
-            echo "{\"type\":\"DXVK\",\"versionName\":\"$1\",\"versionCode\":1,\"description\":\"DXVK $VER for Adreno 750 (Turnip)\",\"files\":[$files]}" > "$P/profile.json"
-            tar -C "$P" -cJf "dxvk-$1.wcp" profile.json system32 syswow64
+            echo "{\"type\":\"DXVK\",\"versionName\":\"$1\",\"versionCode\":0,\"description\":\"DXVK $VER for Adreno 750 (Turnip)\",\"files\":[$files]}" > "$P/profile.json"
+            tar -C "$P" -cf - profile.json system32 syswow64 | xz -T1 -9 > "dxvk-$1.wcp"  # ponytail: single xz block, like known-good GameNative .wcp files
           }
           pack "$VER" x64 x32
           # ponytail: arm64x only if upstream produced it; runs native in arm64ec containers
