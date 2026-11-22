@@ -1,0 +1,65 @@
+name: Build DXVK (A750)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dxvk_ref:
+        description: DXVK tag
+        default: v3.1.1
+      gplasync_patch:
+        description: gplasync patch file (empty = no async)
+        default: dxvk-gplasync-3.1.1-1.patch
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux/archlinux:base-devel
+    steps:
+      - name: Tools (same as upstream DXVK CI)
+        run: |
+          pacman -Syu --needed --noconfirm git meson mingw-w64-gcc glslang hwdata github-cli xz
+          curl -sLO https://github.com/mstorsjo/llvm-mingw/releases/download/20260908/llvm-mingw-20260908-ucrt-ubuntu-22.04-x86_64.tar.xz
+          mkdir /opt/llvm-mingw && tar -C /opt/llvm-mingw -xf llvm-mingw-*.tar.xz --strip-components=1
+
+      - name: Get DXVK + async patch
+        run: |
+          git clone -q --recursive --depth 1 --branch "${{ inputs.dxvk_ref }}" https://github.com/doitsujin/dxvk.git
+          if [ -n "${{ inputs.gplasync_patch }}" ]; then
+            curl -sL "https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/patches/${{ inputs.gplasync_patch }}" -o async.patch
+            git -C dxvk apply ../async.patch
+          fi
+
+      - name: Build (x64, x32, arm64x)
+        working-directory: dxvk
+        run: |
+          export PATH=$PATH:/opt/llvm-mingw/bin
+          VER="${{ inputs.dxvk_ref }}"; VER="${VER#v}"
+          [ -n "${{ inputs.gplasync_patch }}" ] && VER="$VER-gplasync"
+          VER="$VER-a750"
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          ./package-release.sh "$VER" ../out --no-package --build-arm64x
+          find ../out -maxdepth 2 -type d
+
+      - name: Package .wcp for GameNative / Winlator
+        run: |
+          D="out/dxvk-$VER"
+          # pack <name> <dir for system32> <dir for syswow64>
+          pack() {
+            P=$(mktemp -d); mkdir -p "$P/system32" "$P/syswow64"
+            cp "$D/$2"/*.dll "$P/system32/"; cp "$D/$3"/*.dll "$P/syswow64/"
+            files=$(for f in "$P"/system32/*.dll "$P"/syswow64/*.dll; do r=${f#$P/}; d=${r%%/*}; echo "{\"source\":\"$r\",\"target\":\"\${$d}/$(basename $f)\"}"; done | paste -sd,)
+            echo "{\"type\":\"DXVK\",\"versionName\":\"$1\",\"versionCode\":1,\"description\":\"DXVK $VER for Adreno 750 (Turnip)\",\"files\":[$files]}" > "$P/profile.json"
+            tar -C "$P" -cJf "dxvk-$1.wcp" profile.json system32 syswow64
+          }
+          pack "$VER" x64 x32
+          # ponytail: arm64x only if upstream produced it; runs native in arm64ec containers
+          [ -d "$D/arm64x" ] && pack "$VER-arm64x" arm64x x32
+          ls -l *.wcp
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v$VER" dxvk-*.wcp -R "$GITHUB_REPOSITORY" --title "DXVK $VER" --notes "DXVK ${{ inputs.dxvk_ref }} + ${{ inputs.gplasync_patch || 'no async' }}. Import the .wcp in GameNative: Settings > Components."
