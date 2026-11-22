@@ -29,7 +29,8 @@ jobs:
           git clone -q --recursive --depth 1 --branch "${{ inputs.dxvk_ref }}" https://github.com/doitsujin/dxvk.git
           if [ -n "${{ inputs.gplasync_patch }}" ]; then
             curl -sL "https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/patches/${{ inputs.gplasync_patch }}" -o async.patch
-            git -C dxvk apply ../async.patch
+            # ponytail: patch (fuzz ok) like upstream gplasync; git apply is too strict for 3.1.1. Fail on rejects.
+            patch -d dxvk -p1 --no-backup-if-mismatch < async.patch
           fi
 
       - name: Build (x64, x32, arm64x)
