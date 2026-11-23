@@ -1,0 +1,76 @@
+--- a/src/dxvk/dxvk_device_info.cpp	2026-11-22 21:59:37.759246800 -0300
++++ b/src/dxvk/dxvk_device_info.cpp	2026-11-22 21:59:37.781469200 -0300
+@@ -1029,7 +1029,7 @@
+ 
+       /* LOAD_OP_NONE for certain tiler optimizations. Core feature
+        * in Vulkan 1.4, so probably supported by everything we need. */
+-      ENABLE_EXT(khrLoadStoreOpNone, true),
++      ENABLE_EXT(khrLoadStoreOpNone, false),
+ 
+       /* Maintenance features, relied on in various parts of the code */
+       ENABLE_EXT_FEATURE(khrMaintenance5, maintenance5, true),
+--- a/src/dxvk/dxvk_context.cpp	2026-11-22 21:59:37.861204600 -0300
++++ b/src/dxvk/dxvk_context.cpp	2026-11-22 21:59:37.881934200 -0300
+@@ -2040,7 +2040,7 @@
+           VkImageAspectFlags        discardAspects,
+           VkImageAspectFlags        clearAspects,
+           VkClearValue              clearValue) {
+-    bool hasLoadOpNone = m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess;
++    bool hasLoadOpNone = (m_device->features().khrLoadStoreOpNone && m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess);
+ 
+     DxvkColorAttachmentOps colorOp;
+     colorOp.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+@@ -2646,7 +2646,7 @@
+ 
+     // If we don't have maintenance7 support, we need to pretend that accessing
+     // one of depth or stencil also accesses the other aspect in the same way
+-    if (!m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess)
++    if (!(m_device->features().khrLoadStoreOpNone && m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess))
+       m_state.om.attachmentMask.unifyDepthStencilAccess();
+ 
+     // Use attachment access info to set the final load/store ops
+@@ -2688,7 +2688,7 @@
+     if (access == DxvkAccess::None) {
+       // If the attachment is not accessed at all, we can set both the
+       // load and store op to NONE if supported by the implementation.
+-      attachment.loadOp = VK_ATTACHMENT_LOAD_OP_NONE;
++      attachment.loadOp = m_device->features().khrLoadStoreOpNone ? VK_ATTACHMENT_LOAD_OP_NONE : VK_ATTACHMENT_LOAD_OP_LOAD;  // a750: ext optional
+       attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+     } else if (access == DxvkAccess::Read) {
+       // Unlike clears, we don't treat DONT_CARE as a write. If the
+@@ -4219,7 +4219,7 @@
+           renderingInfo.pStencilAttachment = &stencilInfo;
+ 
+         if (imageView->info().aspects != aspect) {
+-          if (m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess) {
++          if ((m_device->features().khrLoadStoreOpNone && m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess)) {
+             if (!(aspect & VK_IMAGE_ASPECT_DEPTH_BIT)) {
+               attachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_NONE;
+               attachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+@@ -5755,7 +5755,7 @@
+         if (depthMode == VK_RESOLVE_MODE_NONE) {
+           attachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+ 
+-          if (m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess) {
++          if ((m_device->features().khrLoadStoreOpNone && m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess)) {
+             attachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_NONE;
+             attachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+           }
+@@ -5772,7 +5772,7 @@
+         } else {
+           stencilInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+ 
+-          if (m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess) {
++          if ((m_device->features().khrLoadStoreOpNone && m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess)) {
+             stencilInfo.loadOp = VK_ATTACHMENT_LOAD_OP_NONE;
+             stencilInfo.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+           }
+@@ -6471,7 +6471,7 @@
+       depthStencilAspects = depthTarget.view->info().aspects;
+       depthStencilWritable = vk::getWritableAspectsForLayout(depthTarget.view->info().layout);
+ 
+-      if (!m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess && depthStencilWritable)
++      if (!(m_device->features().khrLoadStoreOpNone && m_device->properties().khrMaintenance7.separateDepthStencilAttachmentAccess) && depthStencilWritable)
+         depthStencilWritable = depthStencilAspects;
+ 
+       depthInfo.imageView = depthTarget.view->handle();
