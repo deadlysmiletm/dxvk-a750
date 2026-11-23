@@ -64,7 +64,8 @@ jobs:
             echo "{\"type\":\"DXVK\",\"versionName\":\"$1\",\"versionCode\":0,\"description\":\"DXVK $VER for Adreno 750 (Turnip)\",\"files\":[$files]}" > "$P/profile.json"
             tar -C "$P" -cf - profile.json system32 syswow64 | xz -T1 -9 > "dxvk-$1.wcp"  # ponytail: single xz block, like known-good GameNative .wcp files
           }
-          pack "$VER" x64 x32
+          X64=x64; [ -d "$D/x64" ] || X64=x86  # ponytail: backported arm64x script names the x86_64 dir "x86" (fixed upstream later)
+          pack "$VER" $X64 x32
           # ponytail: arm64x only if upstream produced it; runs native in arm64ec containers
           [ -d "$D/arm64x" ] && pack "$VER-arm64x" arm64x x32
           ls -l *.wcp
