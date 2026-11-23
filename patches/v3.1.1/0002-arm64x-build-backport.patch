@@ -1,0 +1,195 @@
+diff --git a/build-arm64x.txt b/build-arm64x.txt
+new file mode 100644
+index 00000000..a93e4133
+--- /dev/null
++++ b/build-arm64x.txt
+@@ -0,0 +1,21 @@
++[binaries]
++c = 'arm64ec-w64-mingw32-gcc'
++cpp = 'arm64ec-w64-mingw32-g++'
++ar = 'arm64ec-w64-mingw32-ar'
++strip = 'arm64ec-w64-mingw32-strip'
++windres = 'arm64ec-w64-mingw32-windres'
++
++[properties]
++needs_exe_wrapper = true
++
++[built-in options]
++c_args = ['-march=armv8.2-a','-mtune=cortex-x3','-marm64x']
++cpp_args = ['-march=armv8.2-a','-mtune=cortex-x3','-marm64x']
++c_link_args = ['-marm64x']
++cpp_link_args = ['-marm64x']
++
++[host_machine]
++system = 'windows'
++cpu_family = 'aarch64'
++cpu = 'aarch64'
++endian = 'little'
+diff --git a/package-release.sh b/package-release.sh
+index 23a4c6bb..e3c4ac3b 100755
+--- a/package-release.sh
++++ b/package-release.sh
+@@ -27,8 +27,10 @@ opt_devbuild=0
+ opt_buildid=false
+ opt_64_only=0
+ opt_32_only=0
++opt_arm64x_only=0
++opt_build_arm64x=0
+ 
+-crossfile="build-win"
++crossfile="build-"
+ 
+ while [ $# -gt 0 ]; do
+   case "$1" in
+@@ -48,6 +50,12 @@ while [ $# -gt 0 ]; do
+   "--32-only")
+     opt_32_only=1
+     ;;
++  "--arm64x-only")
++    opt_arm64x_only=1
++    ;;
++  "--build-arm64x")
++    opt_build_arm64x=1
++    ;;
+   *)
+     echo "Unrecognized option: $1" >&2
+     exit 1
+@@ -70,8 +78,8 @@ function build_arch {
+         --buildtype "release"                               \
+         --prefix "$DXVK_BUILD_DIR"                          \
+         $opt_strip                                          \
+-        --bindir "x$1"                                      \
+-        --libdir "x$1"                                      \
++        --bindir "$2"                                      \
++        --libdir "$2"                                      \
+         -Db_ndebug=if-release                               \
+         -Dbuild_id=$opt_buildid                             \
+         "$DXVK_BUILD_DIR/build.$1"
+@@ -81,7 +89,7 @@ function build_arch {
+ 
+   if [ $opt_devbuild -eq 0 ]; then
+     # get rid of some useless .a files
+-    rm "$DXVK_BUILD_DIR/x$1/"*.!(dll)
++    rm "$DXVK_BUILD_DIR/$2/"*.!(dll)
+     rm -R "$DXVK_BUILD_DIR/build.$1"
+   fi
+ }
+@@ -92,11 +100,14 @@ function package {
+   rm -R "dxvk-$DXVK_VERSION"
+ }
+ 
+-if [ $opt_32_only -eq 0 ]; then
+-  build_arch 64
++if [ $opt_32_only -eq 0 -a $opt_arm64x_only -eq 0 ]; then
++  build_arch win64 x86
++fi
++if [ $opt_64_only -eq 0 -a $opt_arm64x_only -eq 0 ]; then
++  build_arch win32 x32
+ fi
+-if [ $opt_64_only -eq 0 ]; then
+-  build_arch 32
++if [ $opt_build_arm64x -eq 1 -o $opt_arm64x_only -eq 1 ]; then
++  build_arch arm64x arm64x
+ fi
+ 
+ if [ $opt_nopackage -eq 0 ]; then
+diff --git a/src/util/util_bit.h b/src/util/util_bit.h
+index 11e20d13..b1411997 100644
+--- a/src/util/util_bit.h
++++ b/src/util/util_bit.h
+@@ -6,7 +6,7 @@
+   #if defined(__x86_64__) || defined(_M_X64) || defined(__e2k__)
+     #define DXVK_ARCH_X86_64
+   #endif
+-#elif defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC)
++#elif defined(__aarch64__) || defined(__arm64ec__) || defined(_M_ARM64) || defined(_M_ARM64EC)
+   #define DXVK_ARCH_ARM64
+ #endif
+ 
+@@ -28,6 +28,11 @@
+   #endif
+ #endif
+ 
++#if defined(DXVK_ARCH_ARM64) && (defined(__GNUC__) || defined(__clang__))
++  #define DXVK_ARCH_ARM64_NEON
++  #include <arm_neon.h>
++#endif
++
+ #include "util_likely.h"
+ #include "util_math.h"
+ 
+@@ -247,6 +252,17 @@ namespace dxvk::bit {
+       _mm_stream_si128(ptr + 2u, zero);
+       _mm_stream_si128(ptr + 3u, zero);
+     }
++    #elif defined(DXVK_ARCH_ARM64_NEON)
++    // Non-temporal store pairs are the AArch64 counterpart of the streaming stores above
++    auto ptr = reinterpret_cast<char*>(mem);
++    uint8x16_t zero = vdupq_n_u8(0u);
++
++    for (size_t i = 0; i < size; i += 64u) {
++      __asm__ __volatile__ (
++        "stnp %q1, %q1, [%0]\n\t"
++        "stnp %q1, %q1, [%0, #32]\n\t"
++        :: "r" (ptr + i), "w" (zero) : "memory");
++    }
+     #else
+     std::memset(mem, 0, size);
+     #endif
+@@ -299,6 +315,31 @@ namespace dxvk::bit {
+         return false;
+     }
+ 
++    return true;
++    #elif defined(DXVK_ARCH_ARM64_NEON)
++    auto ai = reinterpret_cast<const uint8_t*>(a);
++    auto bi = reinterpret_cast<const uint8_t*>(b);
++
++    size_t i = 0;
++
++    for ( ; i + 64u <= sizeof(T); i += 64u) {
++      uint8x16_t d0 = veorq_u8(vld1q_u8(ai + i +  0u), vld1q_u8(bi + i +  0u));
++      uint8x16_t d1 = veorq_u8(vld1q_u8(ai + i + 16u), vld1q_u8(bi + i + 16u));
++      uint8x16_t d2 = veorq_u8(vld1q_u8(ai + i + 32u), vld1q_u8(bi + i + 32u));
++      uint8x16_t d3 = veorq_u8(vld1q_u8(ai + i + 48u), vld1q_u8(bi + i + 48u));
++      uint8x16_t d = vorrq_u8(vorrq_u8(d0, d1), vorrq_u8(d2, d3));
++
++      if (vmaxvq_u32(vreinterpretq_u32_u8(d)))
++        return false;
++    }
++
++    for ( ; i < sizeof(T); i += 16u) {
++      uint8x16_t d = veorq_u8(vld1q_u8(ai + i), vld1q_u8(bi + i));
++
++      if (vmaxvq_u32(vreinterpretq_u32_u8(d)))
++        return false;
++    }
++
+     return true;
+     #else
+     return !std::memcmp(a, b, sizeof(T));
+@@ -336,6 +377,24 @@ namespace dxvk::bit {
+ 
+       index += 4u;
+     }
++    #elif defined(DXVK_ARCH_ARM64_NEON)
++    static const uint32_t laneBits[4] = { 1u, 2u, 4u, 8u };
++    uint32x4_t bits = vld1q_u32(laneBits);
++
++    while (index + 4u <= count) {
++      auto src = reinterpret_cast<const uint32_t*>(srcPtr + index * sizeof(uint32_t));
++      auto dst = reinterpret_cast<      uint32_t*>(dstPtr + index * sizeof(uint32_t));
++
++      uint32x4_t srcData = vld1q_u32(src);
++      uint32x4_t dstData = vld1q_u32(dst);
++
++      uint32x4_t neMask = vmvnq_u32(vceqq_u32(dstData, srcData));
++      mask |= vaddvq_u32(vandq_u32(neMask, bits)) << index;
++
++      vst1q_u32(dst, srcData);
++
++      index += 4u;
++    }
+     #endif
+ 
+     while (index < count) {

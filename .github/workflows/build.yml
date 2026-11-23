@@ -32,8 +32,8 @@ jobs:
       - name: Get DXVK + async patch
         run: |
           git clone -q --recursive --depth 1 --branch "${{ inputs.dxvk_ref }}" https://github.com/doitsujin/dxvk.git
-          # ponytail: our fixes first (e.g. VK_KHR_load_store_op_none optional; GameNative's Wine path hides it)
-          for p in repo/patches/*.patch; do [ -e "$p" ] && patch -d dxvk -p1 --no-backup-if-mismatch < "$p"; done
+          # ponytail: per-version fixes in patches/<tag>/ (3.1.1: load_store_op_none optional, arm64x backport)
+          for p in repo/patches/${{ inputs.dxvk_ref }}/*.patch; do [ -e "$p" ] && patch -d dxvk -p1 --no-backup-if-mismatch < "$p"; done
           if [ -n "${{ inputs.gplasync_patch }}" ]; then
             curl -sL "https://gitlab.com/Ph42oN/dxvk-gplasync/-/raw/main/patches/${{ inputs.gplasync_patch }}" -o async.patch
             # ponytail: patch (fuzz ok) like upstream gplasync; git apply is too strict for 3.1.1. Fail on rejects.
