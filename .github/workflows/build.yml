@@ -46,7 +46,7 @@ jobs:
           export PATH=$PATH:/opt/llvm-mingw/bin
           VER="${{ inputs.dxvk_ref }}"; VER="${VER#v}"
           [ -n "${{ inputs.gplasync_patch }}" ] && VER="$VER-gplasync"
-          VER="$VER-a750"
+          VER="$VER-a750-r${{ github.run_number }}"  # ponytail: unique tag + distinct GameNative entry per build
           echo "VER=$VER" >> "$GITHUB_ENV"
           # ponytail: arm64x only exists in newer DXVK (master); tags like v3.1.1 build x64/x32 only
           A64=""; grep -q -- "--build-arm64x" package-release.sh && A64="--build-arm64x"
